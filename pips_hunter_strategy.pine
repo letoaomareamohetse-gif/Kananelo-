@@ -1,0 +1,121 @@
+//@version=5
+strategy("🎯 Pips Hunter Bot", 
+         overlay=true, 
+         margin_long=100, 
+         margin_short=100, 
+         initial_capital=1000, 
+         default_qty_type=strategy.percent_of_equity, 
+         default_qty_value=10,
+         commission_type=strategy.commission.percent,
+         commission_value=0.002)
+
+// ═══════════════════════════════════════════════════════════
+// 🎯 PIPS HUNTER BOT - TRADINGVIEW PINE SCRIPT
+// ═══════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────
+// INPUT SETTINGS
+// ─────────────────────────────────────────────────────────
+
+int emaLength   = input.int(50, title="📊 Trend Filter (EMA Length)", minval=10, maxval=200)
+int rsiLength   = input.int(14, title="📈 RSI Length", minval=7, maxval=28)
+int rsiOversold = input.int(35, title="🔵 RSI Oversold (Buy Level)", minval=20, maxval=40)
+int rsiOverbought= input.int(65, title="🔴 RSI Overbought (Sell Level)", minval=60, maxval=80)
+
+float takeProfitPips = input.float(15.0, title="📍 Take Profit (Pips)", minval=5, maxval=50)
+float stopLossPips   = input.float(10.0, title="🛑 Stop Loss (Pips)", minval=5, maxval=30)
+
+int maxTradesPerDay = input.int(15, title="📋 Maximum Trades Per Day", minval=1, maxval=30)
+
+// ─────────────────────────────────────────────────────────
+// TECHNICAL INDICATORS
+// ─────────────────────────────────────────────────────────
+
+float trendEma = ta.ema(close, emaLength)
+float rsiValue = ta.rsi(close, rsiLength)
+
+// Plot indicators on chart
+plot(trendEma, color=color.blue, title="50 EMA Trend Line", linewidth=2)
+
+// RSI Plot
+hline(rsiOversold, "Oversold Level", color=color.green, linestyle=hline.style_dashed)
+hline(rsiOverbought, "Overbought Level", color=color.red, linestyle=hline.style_dashed)
+hline(50, "Middle", color=color.gray, linestyle=hline.style_dotted)
+
+plot(rsiValue, title="RSI", color=color.orange, linewidth=2)
+
+// ─────────────────────────────────────────────────────────
+// DAILY TRADE COUNTER LOGIC
+// ─────────────────────────────────────────────────────────
+
+var tradesExecutedToday = 0
+
+if ta.change(time("D"))
+    tradesExecutedToday := 0
+else
+    tradesExecutedToday := strategy.closedtrades
+
+bool underDailyLimit = (tradesExecutedToday < maxTradesPerDay)
+
+// ─────────────────────────────────────────────────────────
+// ENTRY CONDITIONS
+// ─────────────────────────────────────────────────────────
+
+// BUY: Price above EMA AND RSI crosses above oversold
+bool buyCondition = (close > trendEma) and 
+                     ta.crossover(rsiValue, rsiOversold) and 
+                     underDailyLimit
+
+// SELL: Price below EMA AND RSI crosses below overbought
+bool sellCondition = (close < trendEma) and 
+                      ta.crossunder(rsiValue, rsiOverbought) and 
+                      underDailyLimit
+
+// ─────────────────────────────────────────────────────────
+// RISK MANAGEMENT & TRADE EXECUTION
+// ─────────────────────────────────────────────────────────
+
+// Convert pips to points (Forex standard: 4 decimals = 1 pip = 0.0001)
+float pipSize = syminfo.mintick * 10
+float tpDist  = takeProfitPips * pipSize
+float slDist  = stopLossPips * pipSize
+
+// LONG ENTRY
+if buyCondition and strategy.position_size == 0
+    strategy.entry("PipsHunter_Long", strategy.long)
+    strategy.exit("Exit_Long", "PipsHunter_Long", 
+                  profit=tpDist/syminfo.mintick, 
+                  loss=slDist/syminfo.mintick)
+
+// SHORT ENTRY
+if sellCondition and strategy.position_size == 0
+    strategy.entry("PipsHunter_Short", strategy.short)
+    strategy.exit("Exit_Short", "PipsHunter_Short", 
+                  profit=tpDist/syminfo.mintick, 
+                  loss=slDist/syminfo.mintick)
+
+// ═══════════════════════════════════════════════════════════
+// VISUAL SIGNALS ON CHART
+// ═══════════════════════════════════════════════════════════
+
+// Buy signal marker
+plotshape(buyCondition, 
+          title="Buy Signal", 
+          style=shape.triangleup, 
+          location=location.belowbar, 
+          color=color.green, 
+          size=size.small,
+          text="BUY")
+
+// Sell signal marker
+plotshape(sellCondition, 
+          title="Sell Signal", 
+          style=shape.triangledown, 
+          location=location.abovebar, 
+          color=color.red, 
+          size=size.small,
+          text="SELL")
+
+// Daily trade limit warning
+if not underDailyLimit
+    runtime.error("Daily trade limit reached!")
